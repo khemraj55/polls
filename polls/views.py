@@ -1,4 +1,4 @@
-from django.http import HttpResponse, HttpResponseRedirect, HttpResponseForbidden
+from django.http import HttpResponse, HttpResponseRedirect
 from django.urls import reverse
 from .models import *
 from django.shortcuts import render, get_object_or_404, redirect
@@ -10,6 +10,7 @@ from django.shortcuts import render, redirect
 from .forms import *
 from django.db.models import Sum
 from django.template import TemplateDoesNotExist
+from django.contrib import messages 
 
 def signup(request):
     if request.method == 'POST':
@@ -42,21 +43,12 @@ def user_login(request):
     except TemplateDoesNotExist:
         return HttpResponse("Login template is missing.")
 
-# @login_required
-def index(request):
-    latest_poll_list = Poll.objects.order_by('-pub_date')[:10]
-    context = {'latest_poll_list': latest_poll_list}
-    for poll in latest_poll_list:
-        poll.choices_with_votes = poll.choice_set.annotate(
-            total_votes=Sum('votes'))
-    return render(request, 'poll/index.html', context)
-
 
 def user_logout(request):
     logout(request)
     return render(request, 'poll/logout.html')
 
-# @login_required
+@login_required
 def create_poll(request):
     if request.method == 'POST':
         poll_form = PollForm(request.POST)
@@ -76,36 +68,66 @@ def create_poll(request):
         choice_forms = [ChoiceForm(prefix=str(x)) for x in range(3)]
     return render(request, 'poll/create_poll.html', {'poll_form': poll_form, 'choice_forms': choice_forms})
 
+def index(request):
+    latest_poll_list = Poll.objects.order_by('-pub_date')[:10]
+    context = {'latest_poll_list': latest_poll_list}
+    for poll in latest_poll_list:
+        poll.choices_with_votes = poll.choice_set.annotate(
+            total_votes=Sum('votes'))
+    return render(request, 'poll/index.html', context)
 
 def detail(request, poll_id):
     poll = get_object_or_404(Poll, pk=poll_id)
     return render(request, 'poll/detail.html', {'poll': poll})
 
 
+from datetime import datetime
+
+from django.utils.timezone import make_aware
+
 def results(request, poll_id):
     poll = get_object_or_404(Poll, pk=poll_id)
-    return render(request, 'poll/results.html', {'poll': poll})
+    choices = poll.choice_set.all()
+    total_votes = sum(choice.votes for choice in choices)
 
-@login_required
+    current_time = timezone.localtime(timezone.now())
+
+    is_voting_closed = current_time > poll.end_date
+
+    context = {
+        'poll': poll,
+        'choices': choices,
+        'total_votes': total_votes,
+        'is_voting_closed': is_voting_closed,
+    }
+
+    return render(request, 'poll/results.html', context)
+
+
+@login_required 
 def vote(request, poll_id):
     poll = get_object_or_404(Poll, pk=poll_id)
     current_time = timezone.now()
+
     if current_time > poll.end_date:
-        return HttpResponseForbidden("Voting is closed for this poll.")
+        messages.warning(request, "Voting is closed for this poll.")
+        return HttpResponseRedirect(reverse('polls:results', args=(poll.id,)))
 
     user = request.user
     if Vote.objects.filter(user=user, poll=poll).exists():
-        return render(request, 'poll/detail.html', {'poll': poll, 'error_message': "You have already voted."})
+        messages.warning(request, "You have already voted.")
+        return HttpResponseRedirect(reverse('polls:results', args=(poll.id,)))
 
     try:
         selected_choice = poll.choice_set.get(pk=request.POST['choice'])
     except (KeyError, Choice.DoesNotExist):
-        return render(request, 'poll/detail.html', {
-            'poll': poll,
-            'error_message': "You didn't select a choice.",
-        })
-    else:
-        selected_choice.votes += 1
-        selected_choice.save()
-        Vote.objects.create(user=user, poll=poll, choice=selected_choice)
-        return HttpResponseRedirect(reverse('polls:results', args=(poll.id,)))
+        messages.error(request, "You didn't select a choice.")
+        return render(request, 'poll/detail.html', {'poll': poll})
+
+    selected_choice.votes += 1
+    selected_choice.save()
+    Vote.objects.create(user=user, poll=poll, choice=selected_choice)
+
+    messages.success(request, "Your vote has been recorded.")
+    return HttpResponseRedirect(reverse('polls:results', args=(poll.id,)))
+
