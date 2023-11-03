@@ -1,0 +1,23 @@
+
+
+
+{% if user.is_authenticated %}
+    <p>Welcome, {{ user.username }}!</p>
+    <div style="display: flex; justify-content: space-between;">
+        <a href="{% url 'polls:create_poll' %}"><button>Create Poll</button></a>
+        <a href="{% url 'logout' %}"><button>Logout</button></a>
+    </div>
+{% endif %}
+
+{% if latest_poll_list %}
+    <h1>Latest Polls</h1>
+    <ul>
+        {% for poll in latest_poll_list %}
+            <li><a href="{% url 'polls:detail' poll.id %}">{{ poll.question }}</a></li>
+            <p>Published on: {{ poll.pub_date }}</p>
+            <p>End date: {{ poll.end_date }}</p>
+        {% endfor %}
+    </ul>
+{% else %}
+    <p>No polls are available.</p>
+{% endif %}

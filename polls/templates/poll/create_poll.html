@@ -1,0 +1,10 @@
+<h2>Create a New Poll</h2>
+<form method="post">
+    {% csrf_token %}
+    {{ poll_form.as_p }}
+    <h3>Choices:</h3>
+    {% for choice_form in choice_forms %}
+        {{ choice_form.as_p }}
+    {% endfor %}
+    <input type="submit" value="Create Poll">
+</form>
